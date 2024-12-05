@@ -451,10 +451,17 @@ _/_ {C = C'} {B = B} (handle c wiz v) h = (_<>_ (c / [ v ]vtm) B {h = subst-lemm
 
 [_]opcl {τ} {ν} {E} {C} opcl = rec ([ opcl ]opcl-aux)
 
+
+lookupₐ[]opcl-there : ∀ {τ : Set} {ν : ty τ → Set} {E D} → (opcl : OpCluases (ν ∘ [_]vty) E D) →
+    ∀ {A' B'} {A'' B''} {px : (ν [ A'' ]vty) → (ν [ (B'' ⇒ D) ]vty) → cmp (ν ∘ [_]vty) D} → (i : op A' B' ∈ E)  →
+    lookupₐ ([_]opcl-aux {τ} {ν} (px ∷ opcl)) (∈-map (there i)) ≡ lookupₐ ([_]opcl-aux {τ} {ν} opcl) (∈-map i)
+lookupₐ[]opcl-there opcl i = refl
 lookupₐ[]opcl-aux :
     ∀ {τ : Set} {ν : ty τ → Set} {E D} → (opcl : OpCluases (ν ∘ [_]vty) E D) →
     ∀ {A' B'} → (i : op A' B' ∈ E) →
     lookupₐ ([_]opcl-aux {τ} {ν} opcl) (∈-map i) ≡ ƛ< [ A' ]vty > λ (x : ν _) → ƛ< [ B' ]vty ⇒ [ D ]cty > λ (k : ν _) → [ ((lookupₐ opcl i) x k) ]ctm
+lookupₐ[]opcl-aux (px ∷ opcl) (here refl) = refl
+lookupₐ[]opcl-aux {τ} {ν} {E = op A'' B'' ∷ xs} {D = (A , E')} (px ∷ opcl) (there i) rewrite lookupₐ[]opcl-there {τ} {ν} opcl {px = px} i = lookupₐ[]opcl-aux opcl i
 
  
 example_false_trans : ∀ {τ ν} → [ false ]vtm ≡ false {τ} {ν}
@@ -722,4 +729,4 @@ data _↝+tm_ {τ : Set} {ν : ty τ → Set} : {A : ty τ} → term τ ν A →
 --     (((ξ[ [∙]∙ _ ] (ξ[ ([∙]<> B) ] (ξ[ [∙]∙ _ ] (ξ[ ([∙]∙ _) ] β-[_]))))) ⊙
 --     (((ξ[ [∙]∙ _ ] (ξ[ ([∙]<> B) ] (ξ[ [∙]∙ _ ] {!   !})))) ⊙
 --     (((ξ[ ([∙]∙ _) ] (ξ[ (([∙]<> B)) ] (β-app ([]ctm-subst-comm h-subst₂))))) ⊙
---     []ctm↝*/)))  
+--     []ctm↝*/)))   
