@@ -12,7 +12,8 @@ open import Relation.Binary.PropositionalEquality as P using (_≡_; refl; sym; 
 open import Data.List using ( List; _∷_; []; map; _++_; lookup; length; zip )
 open import Data.List.Membership.Propositional using (_∈_)
 -- open import Data.List.Properties using ( map-∘ )
-open import Data.List.Relation.Unary.All using (All; _∷_; []; uncons; _[_]=_) renaming ( lookup to lookupₐ )
+open import Data.List.Relation.Unary.All using (All; _∷_; []; uncons; _[_]=_; tabulate) renaming ( lookup to lookupₐ )
+open import Data.List.Relation.Unary.All.Properties using (lookup-map; []=⇒lookup)
 open import Data.List.Relation.Unary.Any as Any using (Any; here; there)
 open import Data.Product using ( ∃; _×_ ; _,_ )
 open import Data.Fin using (Fin)
@@ -94,7 +95,8 @@ data cmp ν where
 
 OpCluases ν E D =
     All (λ {(op A' B') →
-    ( ν A' → val ν ((B' ⇒ D) ⇒ D))}
+    -- ( ν A' → val ν ((B' ⇒ D) ⇒ D))}
+    ( ν A' → ν (B' ⇒ D) → cmp ν D)}
   ) E
 
 data _[_]vtm↦_ {ν : ValTy → Set} : {A B : ValTy} → (ν A → val ν B) → val ν A → val ν B → Set
@@ -177,7 +179,8 @@ example_choose {ν} {A} = ƛ< A > (λ x → return (ƛ< A > (λ y →
                                     return (` y)
                             )
                             (
-                                (λ z → ƛ< (bool ⇒ (A , E)) > λ k → doop E-decide unit λ b → (` k) ∙ (`  b))
+                                -- (λ z → ƛ< (bool ⇒ (A , E)) > λ k → doop E-decide unit λ b → (` k) ∙ (`  b))
+                                (λ z k → doop E-decide unit (λ b → (` k) ∙ (` b)))
                                 ∷ []
                             )
                     )))
@@ -187,7 +190,8 @@ example_pickTrue {ν} {A} =
                         handler {E = E}
                             (λ x → return (` x))
                             (
-                                (λ z → ƛ< (bool ⇒ (A , [])) > λ k → (` k) ∙ true)
+                                -- (λ z → ƛ< (bool ⇒ (A , [])) > λ k → (` k) ∙ true)
+                                ((λ z k → (` k) ∙ true))
                                 ∷ []
                             )
 
@@ -442,9 +446,16 @@ _/_ {C = C'} {B = B} (handle c wiz v) h = (_<>_ (c / [ v ]vtm) B {h = subst-lemm
 
 [_]opcl-aux : ∀ {τ : Set} {ν : ty τ → Set} {E D} → OpCluases (ν ∘ [_]vty) E D → All (term τ ν) (map (λ x → [ x ]sig [ D ]cty) E)
 [_]opcl-aux [] = []
-[_]opcl-aux {D = D} (_∷_ {op A' B'} px opcl) = (ƛ< [ A' ]vty > λ x → [ px x ]vtm) ∷ [ opcl ]opcl-aux
+-- [_]opcl-aux {D = D} (_∷_ {op A' B'} px opcl) = (ƛ< [ A' ]vty > λ x → [ px x ]vtm) ∷ [ opcl ]opcl-aux
+[_]opcl-aux {D = D} (_∷_ {op A' B'} px opcl) = (ƛ< [ A' ]vty > λ x → ƛ< [ B' ]vty ⇒ [ D ]cty > λ k → [ (px x k) ]ctm) ∷ [ opcl ]opcl-aux
 
 [_]opcl {τ} {ν} {E} {C} opcl = rec ([ opcl ]opcl-aux)
+
+lookupₐ[]opcl-aux :
+    ∀ {τ : Set} {ν : ty τ → Set} {E D} → (opcl : OpCluases (ν ∘ [_]vty) E D) →
+    ∀ {A' B'} → (i : op A' B' ∈ E) →
+    lookupₐ ([_]opcl-aux {τ} {ν} opcl) (∈-map i) ≡ ƛ< [ A' ]vty > λ (x : ν _) → ƛ< [ B' ]vty ⇒ [ D ]cty > λ (k : ν _) → [ ((lookupₐ opcl i) x k) ]ctm
+
  
 example_false_trans : ∀ {τ ν} → [ false ]vtm ≡ false {τ} {ν}
 example_false_trans = refl
@@ -504,14 +515,14 @@ data _↝ctm_ {ν : ValTy → Set} : {C : CmpTy} → cmp ν C → cmp ν C → S
     β-handle-doop :
         ∀ {A A' B'} {C} {E}
         {i : op A' B' ∈ E} {v : val ν A'} {c : ν B' → cmp ν (A , E)} {ret : ν A → cmp ν C}
-        {opcl : OpCluases ν E C} {c' : cmp ν C} {f'} →
-        ∀ {cᵢ : ν (B' ⇒ C) → ν A' → cmp ν C} →
-        -- opcl [ i ]= cᵢ →
-        -- cᵢ [ (ƛ< B' > λ x → handle c x wiz handler ret opcl) , v ]ctm₂↦ (c')→
-        -- lookupₐ opcl i [ v , (ƛ< B' > λ x → handle c x wiz handler ret opcl) ]ctm₂↦ (c')→
+        {opcl : OpCluases ν E C} {c' : cmp ν C} →
+        -- {f'} →
+        -- ∀ {cᵢ : ν (B' ⇒ C) → ν A' → cmp ν C} →
+        -- opcl [ i ]= f → 
+        (lookupₐ opcl i) [ v , ƛ< B' > (λ x → handle (c x) wiz (handler ret opcl)) ]ctm₂↦ c' →
         -- (lookupₐ opcl i) [ v ]vtm↦ f' →
-        (lookupₐ opcl i) [ v ]vtm↦ (ƛ< B' ⇒ C > f') →
-        (f') [ ƛ< B' > (λ x → handle (c x) wiz (handler ret opcl)) ]ctm↦ c' → 
+        -- (lookupₐ opcl i) [ v ]vtm↦ (ƛ< B' ⇒ C > f') →
+        -- (f') [ ƛ< B' > (λ x → handle (c x) wiz (handler ret opcl)) ]ctm↦ c' →
         -- (λ x → f' ∙ (` x)) [ ƛ< B' > (λ x → handle (c x) wiz (handler ret opcl)) ]ctm↦ c' → 
         (handle doop i v c wiz handler ret opcl) ↝ctm c'
 
@@ -672,6 +683,12 @@ data _↝+tm_ {τ : Set} {ν : ty τ → Set} : {A : ty τ} → term τ ν A →
     t ↝ctm t' →
     (t / h) ↝+tm (t' / h)
 
+↝/h-aux :
+    ∀ {τ} {ν} {E} {A' B'} {C} (opcl : OpCluases _ E C) (i : op A' B' ∈ E) {f'} {v} →
+    (λ x → ƛ< B' ⇒ C > lookupₐ opcl i x) [ v ]vtm↦ (ƛ< B' ⇒ C > f') →
+    (lookupₐ ([_]opcl-aux {τ} {ν} opcl) (∈-map i) ∙ [ v ]vtm) ↝tm (ƛ< [ B' ]vty ⇒ (Π (λ X → ([ C ]⇛ (` X)) ⇒ (` X))) > (λ x → [ f' x ]ctm))
+↝/h-aux {τ} {ν} {E} {A'} {B'} {(A , E')} opcl i {f'} {v} h-subst rewrite lookupₐ[]opcl-aux {τ} {ν} opcl i = β-app ([]vtm-subst-comm h-subst)
+
 -- [↝]ctm {τ} {ν} {C} {.(if true then t' else _)} {t'} β-ifte-true = {!   !} ⊙ {!   !}
 -- [↝]ctm {τ} {ν} {C} {.(if false then _ else t')} {t'} β-ifte-false = {!   !}
 -- [↝]ctm {τ} {ν} {C} {.(handle _ wiz _)} {.(handle _ wiz _)} (ξ-handle htt') = {!   !}
@@ -684,9 +701,25 @@ data _↝+tm_ {τ : Set} {ν : ty τ → Set} : {A : ty τ} → term τ ν A →
 ↝/h {τ} {ν} {C} {B} {.(handle return _ wiz handler _ _)} {t'} {h} (β-handle-return {v = v} h-subst) =
     (ξ[ [∙]∙ h ] (ξ[ ([∙]<> B) ] (ξ[ ([∙]∙ [ v ]vtm) ] β-[1]))) ⊙
     ((ξ[ ([∙]∙ h) ] (ξ[ (([∙]<> B)) ] β-app {t = [ t' ]ctm} ([]ctm-subst-comm h-subst))) ⊙ []ctm↝*/)
-↝/h {τ} {ν} {C} {B} {.(handle doop _ _ _ wiz handler _ _)} {t'} {h} (β-handle-doop h-subst₁ h-subst₂) =
+↝/h {τ} {ν} {C} {B} {handle_wiz_ (doop i v c) (handler ret opcl)} {t'} {h} (β-handle-doop {_} {A'} {B'} (f' , (h-subst₁ , h-subst₂))) =
     (ξ[ [∙]∙ h ] (ξ[ ([∙]<> B) ] (ξ[ [∙]∙ _ ] (ξ[ [∙]∙ _ ] (ξ[ [∙][ _ ] ] β-[2]))))) ⊙
     ((ξ[ [∙]∙ _ ] (ξ[ ([∙]<> B) ] (ξ[ [∙]∙ _ ] (ξ[ ([∙]∙ _) ] β-[_])))) ⊙
-    ((ξ[ [∙]∙ _ ] (ξ[ ([∙]<> B) ] (ξ[ [∙]∙ _ ] {! !}))) ⊙
+    ((ξ[ [∙]∙ _ ] (ξ[ ([∙]<> B) ] (ξ[ [∙]∙ _ ] ↝/h-aux opcl i h-subst₁))) ⊙
     ((ξ[ ([∙]∙ _) ] (ξ[ (([∙]<> B)) ] (β-app ([]ctm-subst-comm h-subst₂))))
-    ⊙ []ctm↝*/)))         
+    ⊙ []ctm↝*/)))
+        
+
+-- ↝/h {τ} {ν} {C = (A , E)} {B} {handle_wiz_ (doop i v c) (handler ret opcl)} {t'} {h} (β-handle-doop (f' , (h-subst₁ , h-subst₂))) with opcl
+-- ... | px ∷ opcl with i
+-- ... | here refl  =
+--     (ξ[ [∙]∙ h ] (ξ[ ([∙]<> B) ] (ξ[ [∙]∙ _ ] (ξ[ [∙]∙ _ ] (ξ[ [∙][ _ ] ] β-[2]))))) ⊙
+--     (((ξ[ [∙]∙ _ ] (ξ[ ([∙]<> B) ] (ξ[ [∙]∙ _ ] (ξ[ ([∙]∙ _) ] β-[_]))))) ⊙
+--     (((ξ[ [∙]∙ _ ] (ξ[ ([∙]<> B) ] (ξ[ [∙]∙ _ ] β-app ([]vtm-subst-comm h-subst₁))))) ⊙
+--     (((ξ[ ([∙]∙ _) ] (ξ[ (([∙]<> B)) ] (β-app ([]ctm-subst-comm h-subst₂))))) ⊙
+--     []ctm↝*/)))
+-- ... | there i  =
+--     (ξ[ [∙]∙ h ] (ξ[ ([∙]<> B) ] (ξ[ [∙]∙ _ ] (ξ[ [∙]∙ _ ] (ξ[ [∙][ _ ] ] β-[2]))))) ⊙
+--     (((ξ[ [∙]∙ _ ] (ξ[ ([∙]<> B) ] (ξ[ [∙]∙ _ ] (ξ[ ([∙]∙ _) ] β-[_]))))) ⊙
+--     (((ξ[ [∙]∙ _ ] (ξ[ ([∙]<> B) ] (ξ[ [∙]∙ _ ] {!   !})))) ⊙
+--     (((ξ[ ([∙]∙ _) ] (ξ[ (([∙]<> B)) ] (β-app ([]ctm-subst-comm h-subst₂))))) ⊙
+--     []ctm↝*/)))  
