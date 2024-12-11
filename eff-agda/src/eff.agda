@@ -12,12 +12,13 @@ open import Relation.Binary.PropositionalEquality as P using (_≡_; refl; sym; 
 open import Data.List using ( List; _∷_; []; map; _++_; lookup; length; zip )
 open import Data.List.Membership.Propositional using (_∈_)
 -- open import Data.List.Properties using ( map-∘ )
-open import Data.List.Relation.Unary.All using (All; _∷_; []; uncons; _[_]=_; tabulate) renaming ( lookup to lookupₐ )
+open import Data.List.Relation.Unary.All using (All; _∷_; []; uncons; _[_]=_; tabulate) renaming ( lookup to lookupₐ ; zip to zipₐ)
 open import Data.List.Relation.Unary.All.Properties using (lookup-map; []=⇒lookup)
 open import Data.List.Relation.Unary.Any as Any using (Any; here; there)
 open import Data.Product using ( ∃; _×_ ; _,_ )
 open import Data.Fin using (Fin)
 open import Function using (_∘_)
+open import Function.Base using (case_of_; case_returning_of_)
 
 
 -- data _∈_ {A : Set} : A → List A → Set where
@@ -27,6 +28,11 @@ open import Function using (_∘_)
 ∈-map : {A B : Set} {x : A} {xs : List A} {f : A → B} → x ∈ xs → f x ∈ (map f xs)
 ∈-map (here refl) = here refl
 ∈-map (there i) = there (∈-map i)
+
+∈-map-inv : {A B : Set} {xs : List A} {f : A → B} {y : B} → y ∈ (map f xs) → ∃ λ (x : A) → f x ≡ y × x ∈ xs
+∈-map-inv {xs = x ∷ xs} (here refl) = x , (refl , (here refl))
+∈-map-inv {xs = x ∷ xs} (there i) with ∈-map-inv i
+... | x' , h , j = x' , (h , (there j))
 
 -- toFin : {A : Set} {x : A} {xs : List A} → x ∈ xs → Fin (length xs)
 -- toFin Z = Fin.zero
@@ -101,7 +107,28 @@ OpCluases ν E D =
 
 data _[_]vtm↦_ {ν : ValTy → Set} : {A B : ValTy} → (ν A → val ν B) → val ν A → val ν B → Set
 data _[_]ctm↦_ {ν : ValTy → Set} : {A : ValTy} {C : CmpTy} → (ν A → cmp ν C) → val ν A → cmp ν C → Set
-data _[_]opcl↦_ {ν : ValTy → Set} : {A : ValTy} {E : Eff} {C : CmpTy} → (ν A → OpCluases ν E C) → val ν A → OpCluases ν E C → Set
+-- data _[_]opcl↦_ {ν : ValTy → Set} : {A : ValTy} {E : Eff} {C : CmpTy} → (ν A → OpCluases ν E C) → val ν A → OpCluases ν E C → Set
+_[_]opcl↦_ : {ν : ValTy → Set} {A : ValTy} {E : Eff} {C : CmpTy} → (ν A → OpCluases ν E C) → val ν A → OpCluases ν E C → Set
+
+_[_,_]ctm₂↦_ : {ν : ValTy → Set} {A B : ValTy} {C : CmpTy} → (ν A → ν B → cmp ν C) → val ν A → val ν B → cmp ν C → Set
+_[_,_]ctm₂↦_ {ν } {A} {B} {C} f a b c =
+    ∃ λ (f' : ν B → cmp ν C) →
+    ((λ x → ƛ< B > f x) [ a ]vtm↦ (ƛ< B > f')) × (f' [ b ]ctm↦ c)
+
+-- data _[_]opcl↦_ {ν} where
+--     [] : ∀ {A} {v : val ν A} {C} → _[_]opcl↦_ {C = C} (λ x → [])  v []
+--     _∷_ :
+--         ∀ {A} {v : val ν A} {A' B'} {C} {E} {px : ν A → ν A' → ν (B' ⇒ C) → cmp ν C} {opcl : ν A → OpCluases ν E C} {px' : ν A' → ν (B' ⇒ C) → cmp ν C} {opcl'} → 
+--         (∀ (x : ν A') (k : ν _) → ((λ (a : ν A) → px a x k) [ v ]ctm↦ px' x k)) → 
+--         opcl [ v ]opcl↦ opcl' →
+--         (λ x → (px x) ∷ (opcl x)) [ v ]opcl↦ (px' ∷ opcl')
+
+_[_]opcl↦_ {ν} {A} {E} {C} opcl v opcl' =
+    ∀ {A' B'} (i : op A' B' ∈ E) →
+    (x : ν A') → (k : ν (B' ⇒ C)) →
+    (λ a → (lookupₐ (opcl a) i) x k) [ v ]ctm↦ (lookupₐ opcl' i) x k
+
+
 data _[_]vtm↦_ {ν} where
     `= : ∀ {A} {v : val ν A} → (λ x → ` x) [ v ]vtm↦ v
     `≠ : ∀ {A B} {v : val ν A} (x : ν B) → (λ _ → ` x) [ v ]vtm↦ (` x)
@@ -156,11 +183,6 @@ data _[_]ctm↦_ {ν} where
         (f₁ [ s ]ctm↦ c) →
         (f₂ [ s ]vtm↦ v) →
         (λ x → handle f₁ x wiz f₂ x) [ s ]ctm↦ (handle c wiz v)
-    
-_[_,_]ctm₂↦_ : {ν : ValTy → Set} {A B : ValTy} {C : CmpTy} → (ν A → ν B → cmp ν C) → val ν A → val ν B → cmp ν C → Set
-_[_,_]ctm₂↦_ {ν } {A} {B} {C} f a b c =
-    ∃ λ (f' : ν B → cmp ν C) →
-    ((λ x → ƛ< B > f x) [ a ]vtm↦ (ƛ< B > f')) × (f' [ b ]ctm↦ c)
 
 E : Eff
 E = op unit bool ∷ []
@@ -302,12 +324,18 @@ data _[_]tm↦_ {τ : Set} {ν : ty τ → Set} : {A B : ty τ} → (ν A → te
         ∀ {A B C : ty τ} {ab : term τ ν (A ⊗ B)} {s : term τ ν C} {f : ν C → term τ ν (A ⊗ B)} →
         f [ s ]tm↦ ab → 
         (λ x → (f x) [2]) [ s ]tm↦ (ab [2])
+    -- rec : 
+    --     ∀ {A : ty τ} {s : term τ ν A}
+    --     {l : List (ty τ)} {f-r : All (λ B → ν A → term τ ν B) l}
+    --     {r : All (λ B → term τ ν B) l} →
+    --     (∀ {B} (i : B ∈ l) → (lookupₐ f-r i) [ s ]tm↦ lookupₐ r i) →
+    --     (λ x → rec (mapₐ f-r λ _ f → f x)) [ s ]tm↦ (rec r)
     rec : 
         ∀ {A : ty τ} {s : term τ ν A}
-        {l : List (ty τ)} {f-r : All (λ B → ν A → term τ ν B) l}
-        {r : All (λ B → term τ ν B) l} →
-        (∀ {B} (i : B ∈ l) → (lookupₐ f-r i) [ s ]tm↦ lookupₐ r i) →
-        (λ x → rec (mapₐ f-r λ _ f → f x)) [ s ]tm↦ (rec r)
+        {l : List (ty τ)} {r : ν A → All (λ B → term τ ν B) l}
+        {r' : All (λ B → term τ ν B) l} →
+        (∀ {B} (i : B ∈ l) → (λ x → lookupₐ (r x) i) [ s ]tm↦ lookupₐ r' i) →
+        (λ x → rec (r x)) [ s ]tm↦ (rec r')
     _[_] :
         ∀ {A B : ty τ} {s : term τ ν A}
         {l : List (ty τ)} {f : ν A → term τ ν (rec l)}
@@ -681,6 +709,21 @@ data _↝+tm_ {τ : Set} {ν : ty τ → Set} : {A : ty τ} → term τ ν A →
 /-subst-comm (if h-x then h-subst-t else h-subst-e) h-subst-fh = if []vtm-subst-comm h-x then /-subst-comm h-subst-t h-subst-fh else /-subst-comm h-subst-e h-subst-fh
 /-subst-comm (handle h-subst-c wiz h-subst-v) h-subst-fh = ((/-subst-comm h-subst-c ([]vtm-subst-comm h-subst-v)) <>) ∙ h-subst-fh
 
+[]opcl-subst-comm-aux :
+    ∀ {τ} {ν} {A} {A' B'} {C} {E} {s : val (ν ∘ [_]vty) A} {i : op A' B' ∈ E} {opcl : ν [ A ]vty → OpCluases _ E C} {opcl' : OpCluases _ E C} →
+    opcl [ s ]opcl↦ opcl' →
+    (λ x → lookupₐ ([_]opcl-aux {τ} {ν} (opcl x)) (∈-map i)) [ [ s ]vtm ]tm↦ lookupₐ [ opcl' ]opcl-aux (∈-map i)
+[]opcl-subst-comm-aux {τ} {ν} {i = i} {opcl} h-subst =
+    let aux = h-subst i in
+    let aux' = λ x k → []ctm-subst-comm (aux x k) in
+    {! !}
+
+[]opcl-subst-comm h-subst =
+    rec λ i →
+        let (sig , h , j) = ∈-map-inv i in
+        case sig of λ where
+            (op A' B') → let aux = {! h-subst j  !} in {!   !}
+
 -- [↝]ctm :
 --     ∀ {τ : Set} {ν : ty τ → Set} {C} {t t' : cmp (ν ∘ [_]vty) C} → 
 --     t ↝ctm t' →
@@ -729,4 +772,4 @@ data _↝+tm_ {τ : Set} {ν : ty τ → Set} : {A : ty τ} → term τ ν A →
 --     (((ξ[ [∙]∙ _ ] (ξ[ ([∙]<> B) ] (ξ[ [∙]∙ _ ] (ξ[ ([∙]∙ _) ] β-[_]))))) ⊙
 --     (((ξ[ [∙]∙ _ ] (ξ[ ([∙]<> B) ] (ξ[ [∙]∙ _ ] {!   !})))) ⊙
 --     (((ξ[ ([∙]∙ _) ] (ξ[ (([∙]<> B)) ] (β-app ([]ctm-subst-comm h-subst₂))))) ⊙
---     []ctm↝*/)))   
+--     []ctm↝*/)))        
